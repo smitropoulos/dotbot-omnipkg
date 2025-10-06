@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 from shutil import which
 
@@ -23,32 +22,24 @@ class OmniPkg(dotbot.Plugin):
 
     def handle(self, directive, data) -> bool:  # noqa: ANN001, ARG002
         directives = self.parser.parse(data)
+
         if directives.update is True:
             self._packageManager.update()
-        return True
 
-    def _printSubDirectiveError(self, sdName: str) -> None:
-        self._log.error(f"Error executing {sdName} subdirective")
-
-    def run_in_shell(self, cmd: str, *, silent: bool = True) -> bool:
-        with open(os.devnull, "w") as devnull:
-            if silent:
-                stdout = stderr = devnull
+        for pkg in directives.packages:
+            install_success = self._packageManager.package_install(pkg.package_name)
+            # try alternative names if present
+            if not install_success and len(pkg.package_name_alt) != 0:
+                for alt_name in pkg.package_name_alt:
+                    self._packageManager.package_install(alt_name)
+            if not install_success:
+                # instead of bailing, continue and log this
+                self._log.error(f"Error installing {pkg}")
             else:
-                stdout = stderr = None
+                self._log.info(f"Done installing {pkg}")
 
-            result = subprocess.call(
-                cmd, shell=True, stdout=stdout, stderr=stderr, cwd=self._context.base_directory()
-            )
-            return result == 0
+        self._log.info("Omnipkg done")
         return True
-
-    def run_in_shellBrew(self) -> None:
-        # install brew
-        link = "https://raw.githubusercontent.com/Homebrew/install/master/install.sh"
-        cmd = f"""hash brew || /bin/bash -c "$(curl -fsSL {link})";
-              brew update"""
-        self.run_in_shell(cmd)
 
 
 class Directives:
@@ -66,7 +57,6 @@ class Directives:
     """
 
     update = False
-    upgrade = False
     packages: list[Package] = []  # noqa: RUF012
 
 
@@ -77,43 +67,43 @@ class Package:
         self.package_name_alt = alts if alts is not None else []
 
     def __repr__(self) -> str:
-        """Provides a clean, readable string representation of the object."""
+        """Provides a custom, readable string representation of the object."""
+        # If the list of alternative names is not empty...
         if self.package_name_alt:
-            return f"Package(name='{self.package_name}', alts={self.package_name_alt})"
-        return f"Package(name='{self.package_name}')"
+            # Join the alternative names with a comma and space
+            alts_str = ", ".join(self.package_name_alt)
+            # Return the special format for packages with alts
+            return f"Package {self.package_name} (or {alts_str})"
+
+        return f"Package {self.package_name}"
 
 
 class DirectivesParser:
     _mainDirective = "omnipkg"
     _installSubDirective = "install"
     _updateSubDirective = "update"
-    _upgradeSubDirective = "upgrade"
 
     def parse(self, data: list[any]) -> Directives:
         directives = Directives()
         for item in data:
             # 2. Handle simple string commands
             if isinstance(item, str):
-                print(item)
                 if item == self._updateSubDirective:
                     directives.update = True
-                if item == self._upgradeSubDirective:
-                    directives.upgrade = True
 
             elif isinstance(item, dict):
                 for command, packages_data in item.items():
                     if command == self._installSubDirective:
-                        package_objects = []
                         for package_item in packages_data:
                             # If it's a list, it has a primary name and alternatives
                             if isinstance(package_item, list):
                                 pkg = Package(name=package_item[0], alts=package_item[1:])
-                                package_objects.append(pkg)
+                                directives.packages.append(pkg)
                             # If it's a string, it's just a primary name
                             elif isinstance(package_item, str):
                                 pkg = Package(name=package_item)
-                                package_objects.append(pkg)
-        print("Done parsing")
+                                directives.packages.append(pkg)
+        return directives
 
 
 class PackageManager:
@@ -162,24 +152,23 @@ class PacmanPackageManager(PackageManager):
         self._update_command = "sudo pacman --sync --refresh --refresh"
         self._package_exists_command = "pacman -Si"  # plus pkg
         self._package_is_installed_command = "pacman -Qe"  # plus pkg
-        self._package_install_command = "pacman -S --noconfirm --needed"  # plus pkg
+        self._package_install_command = "sudo pacman -S --noconfirm --needed"  # plus pkg
 
     def update(self) -> None:
-        print(f"Updating using {self._update_command}")
         run_in_shell(self._update_command, silent=True)
 
     def package_exists(self, package: str) -> bool:
         # regex here be specific
         cmd = self._package_exists_command + " ^" + package + "$"
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
 
 class AptPackageManager(PackageManager):
@@ -196,15 +185,15 @@ class AptPackageManager(PackageManager):
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
 
 class BrewPackageManager(PackageManager):
@@ -219,15 +208,15 @@ class BrewPackageManager(PackageManager):
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
 
 class DnfPackageManager(PackageManager):
@@ -242,15 +231,15 @@ class DnfPackageManager(PackageManager):
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
 
 class ZypperPackageManager(PackageManager):
@@ -265,15 +254,15 @@ class ZypperPackageManager(PackageManager):
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=False)
+        return run_in_shell(cmd, silent=True)
 
 
 class PackageManagerFactory:
@@ -288,8 +277,6 @@ class PackageManagerFactory:
     def spawn(self) -> PackageManager:
         for pm_tuple in self.pms:
             if which(pm_tuple["executable"]) is not None:
-                print("========================")
-                print(pm_tuple["executable"])
                 return pm_tuple["pm"]
         msg = "Not supported platform"
         raise RuntimeError(msg)
