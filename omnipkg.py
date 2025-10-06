@@ -67,15 +67,15 @@ class Package:
         self.package_name_alt = alts if alts is not None else []
 
     def __repr__(self) -> str:
-        """Provides a custom, readable string representation of the object."""
-        # If the list of alternative names is not empty...
-        if self.package_name_alt:
-            # Join the alternative names with a comma and space
-            alts_str = ", ".join(self.package_name_alt)
-            # Return the special format for packages with alts
-            return f"Package {self.package_name} (or {alts_str})"
+        """Joins the original and alternative names with a slash."""
+        # Create a new list starting with the original name
+        all_names = [self.package_name]
 
-        return f"Package {self.package_name}"
+        # Add the list of alternative names
+        all_names.extend(self.package_name_alt)
+
+        # Join all names
+        return " || ".join(all_names)
 
 
 class DirectivesParser:
