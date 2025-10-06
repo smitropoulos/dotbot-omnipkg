@@ -1,7 +1,9 @@
-import dotbot
 import os
-import sys
 import subprocess
+import sys
+
+import dotbot
+
 
 class OmniPkg(dotbot.Plugin):
     # only support the omnipkg directive
@@ -37,8 +39,8 @@ class OmniPkg(dotbot.Plugin):
     # flag for if a gui is installed. Default to True, only checked if on linux
     _guiInstalled = True
 
-    def __init__(self, context):
-        super(OmniPkg, self).__init__(context)
+    def __init__(self, context) -> None:
+        super().__init__(context)
         # here we setup the commands based on whether linux or macos is
         # installed.
         # if macos is installed then we try to setup with brew
@@ -73,9 +75,8 @@ class OmniPkg(dotbot.Plugin):
                     _doUpdate = True
                 elif sd == self._upgradeSubDirective:
                     _doUpgrade = True
-            elif isinstance(sd, object):
-                if self._installSubDirective in sd:
-                    _installData = sd[self._installSubDirective]
+            elif isinstance(sd, object) and self._installSubDirective in sd:
+                _installData = sd[self._installSubDirective]
 
         # execute the processed sub directives and report any errors but
         # continue for each sub directive
@@ -95,18 +96,18 @@ class OmniPkg(dotbot.Plugin):
 
         return _updateStatus and _installStatus and _upgradeStatus
 
-    def _printSubDirectiveError(self, sdName):
-        self._log.error("Error executing %s subdirective" % sdName)
+    def _printSubDirectiveError(self, sdName: str) -> None:
+        self._log.error(f"Error executing {sdName} subdirective")
 
-    def _setupMacOS(self):
+    def _setupMacOS(self) -> None:
         self._platformName = "mac"
         self._setupBrew()
 
-    def _setupLinux(self):
+    def _setupLinux(self) -> None:
         self._platformName = "linux"
 
         # check if gui is installed on this linux
-        self._guiInstalled = os.getenv('XDG_CURRENT_DESKTOP') is not None
+        self._guiInstalled = os.getenv("XDG_CURRENT_DESKTOP") is not None
 
         # check the package manager that is installed and use that
         # the following are the supported package managers for now
@@ -114,11 +115,11 @@ class OmniPkg(dotbot.Plugin):
         managers = [
             ("apt-get", "apt", "/etc/debian_version", "_setupAptGet"),
             ("pacman", "pac", "/etc/arch-release", "_setupPacman"),
-            ("dnf", "dnf", "/etc/redhat-release", "_setupDnf")
+            ("dnf", "dnf", "/etc/redhat-release", "_setupDnf"),
         ]
         self._selectPackageManager(managers)
 
-    def _selectPackageManager(self, packageManagers):
+    def _selectPackageManager(self, packageManagers) -> None:
         for name, lookup, file, func in packageManagers:
             if os.path.exists(file):
                 # set the package manager name and run the setup function
@@ -127,7 +128,7 @@ class OmniPkg(dotbot.Plugin):
                 eval("self." + func + "()")
                 break
 
-    def _setupBrew(self):
+    def _setupBrew(self) -> None:
         self._packageManagerName = "brew"
         self._dictLookup = self._packageManagerName
 
@@ -136,13 +137,13 @@ class OmniPkg(dotbot.Plugin):
         self._existsCheck = "brew search /^$PKG_NAME$/"
         self._upgradeCommand = "brew upgrade"
 
-    def _setupAptGet(self):
+    def _setupAptGet(self) -> None:
         self._installCommand = "sudo apt-get install -y"
         self._existsCheck = "apt-cache show $PKG_NAME"
         self._updateCommand = "sudo apt-get update"
         self._upgradeCommand = "sudo apt-get dist-upgrade -y"
 
-    def _setupPacman(self):
+    def _setupPacman(self) -> None:
         baseCommand = "sudo pacman --noconfirm %s"
         self._installCommand = baseCommand % "-S"
         self._existsCheck = "pacman -Si $PKG_NAME"
@@ -150,7 +151,7 @@ class OmniPkg(dotbot.Plugin):
         self._updateCommand = baseCommand % "-Syy"
         self._upgradeCommand = baseCommand % "-Syu"
 
-    def _setupDnf(self):
+    def _setupDnf(self) -> None:
         self._installCommand = "sudo dnf install -y"
         self._existsCheck = "dnf list $PKG_NAME"
         self._updateCommand = "sudo dnf check-update"
@@ -166,78 +167,78 @@ class OmniPkg(dotbot.Plugin):
                     if isinstalled:
                         self._log.info(f"Package {pkg} is already installed. Skipping")
                         continue
-                    self._log.info("Installing package: %s" % pkg)
+                    self._log.info(f"Installing package: {pkg}")
                     exists = self._pkgExists(pkg)
                     existsInDict = True
                     requireGUI = False
                 elif isinstance(pkg, list):
-                    self._log.info("Selecting package from {}".format(pkg))
+                    self._log.info(f"Selecting package from {pkg}")
                     exists, pkg = self._getPkgNameFromList(pkg)
                     existsInDict = True
                     requireGUI = False
                     if exists:
-                        self._log.info("Found package: %s - Installing" % pkg)
+                        self._log.info(f"Found package: {pkg} - Installing")
                 elif isinstance(pkg, dict):
-                    self._log.info("Selecting optional package from {}".format(pkg))
-                    existsInDict, exists, requireGUI, pkg, directive = self._getPkgNameFromDict(pkg)
+                    self._log.info(f"Selecting optional package from {pkg}")
+                    existsInDict, exists, requireGUI, pkg, directive = self._getPkgNameFromDict(
+                        pkg
+                    )
                     if exists and not (requireGUI and not self._guiInstalled):
-                        self._log.info("Found package: %s for %s - Installing" % (pkg, directive))
+                        self._log.info(f"Found package: {pkg} for {directive} - Installing")
                 else:
                     # invalid data
                     # this should be handled above the plugin level
-                    raise ValueError("Invalid data given to omnipkg-install")
+                    msg = "Invalid data given to omnipkg-install"
+                    raise TypeError(msg)
 
                 # first check that item exists in data (only relevant for dictionary data)
                 if not existsInDict:
-                    self._log.lowinfo("Skipping installation as no package specified for %s or %s" % (self._packageManagerName, self._platformName))
+                    self._log.lowinfo(
+                        f"Skipping installation as no package specified for {self._packageManagerName} or {self._platformName}"
+                    )
                     # otherwise skip if package doesn't exist
                 elif not exists:
                     self._log.lowinfo("Skipping installation as package does not exist")
                 elif requireGUI and not self._guiInstalled:
                     self._log.lowinfo("Skipping installation as package requires an installed GUI")
                 else:
-                    cmd = "%s %s" % (self._installCommand, pkg)
+                    cmd = f"{self._installCommand} {pkg}"
                     result = self._bootstrap(cmd)
                     if not result:
                         success = False  # if one fails we still continue
-                        self._log.warning("Package %s failed to install" % pkg)
+                        self._log.warning(f"Package {pkg} failed to install")
 
             return success
-        else:
-            # there should always be an install command
-            return False
+        # there should always be an install command
+        return False
 
-    def _doUpdate(self):
+    def _doUpdate(self) -> bool:
         if self._updateCommand != "":
-            self._log.info("Begin Update <%s>" % self._updateCommand)
+            self._log.info(f"Begin Update <{self._updateCommand}>")
             return self._bootstrap(self._updateCommand)
-        else:
-            # there doesn't have to be an update command
-            return True
+        # there doesn't have to be an update command
+        return True
 
-    def _doUpgrade(self):
+    def _doUpgrade(self) -> bool:
         if self._upgradeCommand != "":
-            self._log.info("Begin Upgrade <%s>" % self._upgradeCommand)
+            self._log.info(f"Begin Upgrade <{self._upgradeCommand}>")
             return self._bootstrap(self._upgradeCommand, silent=False)
-        else:
-            # there doesn't have to be an upgrade command
-            return True
+        # there doesn't have to be an upgrade command
+        return True
 
-    def _pkgExists(self, pkg):
+    def _pkgExists(self, pkg) -> bool:
         if self._existsCheck != "":
             cmd = self._existsCheck.replace("$PKG_NAME", pkg)
             return self._bootstrap(cmd)
-        else:
-            # assume the package exists if no check
-            return True
-    
+        # assume the package exists if no check
+        return True
+
     def _pkgIsInstalled(self, pkg: str) -> bool:
         if self._installedCheck != "":
             cmd = self._installedCheck.replace("$PKG_NAME", pkg)
             return self._bootstrap(cmd)
         # assume the package is not installed if no check provided
         return True
-
 
     def _getPkgNameFromList(self, pkgList):
         for pkg in pkgList:
@@ -261,34 +262,30 @@ class OmniPkg(dotbot.Plugin):
         if self._dictLookup in pkgDict:
             pkg = pkgDict[self._dictLookup]
             return (True, self._pkgExists(pkg), requireGUI, pkg, self._dictLookup)
-        elif self._platformName in pkgDict:
+        if self._platformName in pkgDict:
             pkg = pkgDict[self._platformName]
             return (True, self._pkgExists(pkg), requireGUI, pkg, self._platformName)
-        elif self._dictLookupElse in pkgDict:
+        if self._dictLookupElse in pkgDict:
             pkg = pkgDict[self._dictLookupElse]
             return (True, self._pkgExists(pkg), requireGUI, pkg, self._dictLookupElse)
-        else:
-            return (False, False, requireGUI, None, None)
+        return (False, False, requireGUI, None, None)
 
-    def _bootstrap(self, cmd, silent=True):
-        with open(os.devnull, 'w') as devnull:
+    def _bootstrap(self, cmd: str, *, silent: bool = True) -> bool:
+        with open(os.devnull, "w") as devnull:
             if silent:
                 stdout = stderr = devnull
             else:
                 stdout = stderr = None
 
             result = subprocess.call(
-                cmd,
-                shell=True,
-                stdout=stdout,
-                stderr=stderr,
-                cwd=self._context.base_directory())
+                cmd, shell=True, stdout=stdout, stderr=stderr, cwd=self._context.base_directory()
+            )
             return result == 0
         return True
 
-    def _bootstrapBrew(self):
+    def _bootstrapBrew(self) -> None:
         # install brew
         link = "https://raw.githubusercontent.com/Homebrew/install/master/install.sh"
-        cmd = """hash brew || /bin/bash -c "$(curl -fsSL {0})";
-              brew update""".format(link)
+        cmd = f"""hash brew || /bin/bash -c "$(curl -fsSL {link})";
+              brew update"""
         self._bootstrap(cmd)
