@@ -31,6 +31,9 @@ class OmniPkg(dotbot.Plugin):
     # Command used to check that the package exists before installing it
     _existsCheck = ""
 
+    # command is installed already
+    _installedCheck = ""
+
     # flag for if a gui is installed. Default to True, only checked if on linux
     _guiInstalled = True
 
@@ -143,6 +146,7 @@ class OmniPkg(dotbot.Plugin):
         baseCommand = "sudo pacman --noconfirm %s"
         self._installCommand = baseCommand % "-S"
         self._existsCheck = "pacman -Si $PKG_NAME"
+        self._installedCheck = "pacman -Qe $PKG_NAME"
         self._updateCommand = baseCommand % "-Syy"
         self._upgradeCommand = baseCommand % "-Syu"
 
@@ -158,6 +162,10 @@ class OmniPkg(dotbot.Plugin):
             success = True
             for pkg in pkgList:
                 if isinstance(pkg, str):
+                    isinstalled = self._pkgIsInstalled(pkg)
+                    if isinstalled:
+                        self._log.info(f"Package {pkg} is already installed. Skipping")
+                        continue
                     self._log.info("Installing package: %s" % pkg)
                     exists = self._pkgExists(pkg)
                     existsInDict = True
@@ -222,6 +230,14 @@ class OmniPkg(dotbot.Plugin):
         else:
             # assume the package exists if no check
             return True
+    
+    def _pkgIsInstalled(self, pkg: str) -> bool:
+        if self._installedCheck != "":
+            cmd = self._installedCheck.replace("$PKG_NAME", pkg)
+            return self._bootstrap(cmd)
+        # assume the package is not installed if no check provided
+        return True
+
 
     def _getPkgNameFromList(self, pkgList):
         for pkg in pkgList:
