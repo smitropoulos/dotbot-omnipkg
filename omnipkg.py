@@ -31,7 +31,7 @@ class OmniPkg(dotbot.Plugin):
             # try alternative names if present
             if not install_success and len(pkg.package_name_alt) != 0:
                 for alt_name in pkg.package_name_alt:
-                    self._packageManager.package_install(alt_name)
+                    install_success = self._packageManager.package_install(alt_name)
             if not install_success:
                 # instead of bailing, continue and log this
                 self._log.error(f"Error installing {pkg}")
