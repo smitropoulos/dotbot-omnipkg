@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from shutil import which
+from typing import ClassVar
 
 import dotbot
 
-omnipkg_silent_toggle = False
+omnipkg_silent_toggle = True
+plugin_name = "Omnipkg"
 
 
 class OmniPkg(dotbot.Plugin):
     # only support the omnipkg directive
     _mainDirective = "omnipkg"
+
+    def _log_error(self, msg: str) -> None:
+        self._log.error(f"{plugin_name} - {msg}")
+
+    def _log_info(self, msg: str) -> None:
+        self._log.info(f"{plugin_name} - {msg}")
 
     def __init__(self, context) -> None:  # noqa: ANN001
         super().__init__(context)
@@ -28,11 +37,14 @@ class OmniPkg(dotbot.Plugin):
         if directives.update is True:
             self._packageManager.update()
 
+        filtering = OsFiltering()
         for install_entry in directives.install_entries:
-            print(install_entry)
-            filters = install_entry.filters
-            if filters is not None:
-                print(f"Filters found {filters}")
+            if filtering.filter_out(install_entry):
+                self._log_info(
+                    f"filtering out {install_entry.package_name} - filter: {install_entry.filters}"
+                )
+                continue
+
             install_success = self._packageManager.package_install(install_entry.package_name)
             # try alternative names if present
             if not install_success and len(install_entry.package_name_alt) != 0:
@@ -40,12 +52,35 @@ class OmniPkg(dotbot.Plugin):
                     install_success = self._packageManager.package_install(alt_name)
             if not install_success:
                 # instead of bailing, continue and log this
-                self._log.error(f"Error installing {install_entry}")
+                self._log_error(f"error installing {install_entry}")
             else:
-                self._log.info(f"Done installing {install_entry}")
+                self._log_info(f"installed {install_entry}")
 
-        self._log.info("Omnipkg done")
+        self._log_info("done")
         return True
+
+
+class OsFiltering:
+    supported_os: ClassVar[list[str]] = ["linux", "macos"]
+
+    def __init__(self) -> None:
+        self.platform = self._get_platform()
+
+    def _get_platform(self) -> str:
+        return sys.platform
+
+    def _should_filter(self, install_entry: InstallEntry) -> bool:
+        return bool(install_entry.filters is not None and len(install_entry.filters) != 0)
+
+    def filter_out(self, install_entry: InstallEntry) -> bool:
+        """handles filtering based on OS
+
+        Returns:
+            True to filter the entry out, e.g. not handle it at all
+        """
+        return bool(
+            self._should_filter(install_entry) and self.platform not in install_entry.filters
+        )
 
 
 class Directives:
@@ -65,19 +100,19 @@ class InstallEntry:
         """Initializes the Package object."""
         self.package_name = name if name is not None else ""
         self.package_name_alt = alts if alts is not None else []
-        self.filters = filters if alts is not None else []
+        self.filters = filters if filters is not None else []
 
     def __repr__(self) -> str:
         """Provides a clean, readable string representation."""
         name_str = self.package_name
         if self.package_name_alt:
-            name_str += f" (alts: {', '.join(self.package_name_alt)})"
+            name_str += f" (alternative name: {', '.join(self.package_name_alt)})"
 
         filter_str = ""
         if self.filters:
-            filter_str = f" [filters: {', '.join(self.filters)}]"
+            filter_str = f"- (filters: {', '.join(self.filters)})"
 
-        return f"InstallEntry('{name_str}'{filter_str})"
+        return f"{name_str} {filter_str}"
 
 
 class DirectivesParser:
@@ -146,29 +181,32 @@ class PackageManager:
     def setup(self) -> None:
         """if necessary setup the package manager"""
 
-    def package_install(self, package: str) -> bool:
+    def package_install(self, _package: str) -> bool:
         """install a package
 
         Returns:
             success
         """
+        return False
 
     def update(self) -> None:
         """update the caches"""
 
-    def package_exists(self, package: str) -> bool:
+    def package_exists(self, _package: str) -> bool:
         """check if the package exists in the remote
 
         Returns:
             success
         """
+        return False
 
-    def package_is_installed(self, package: str) -> bool:
+    def package_is_installed(self, _package: str) -> bool:
         """checks if the packages is already installed
 
         Returns:
             true if installed, false if not
         """
+        return False
 
 
 def run_in_shell(cmd: str, *, silent: bool = True) -> bool:
