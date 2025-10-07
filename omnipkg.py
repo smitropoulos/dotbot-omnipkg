@@ -5,6 +5,8 @@ from shutil import which
 
 import dotbot
 
+omnipkg_silent_toggle = False
+
 
 class OmniPkg(dotbot.Plugin):
     # only support the omnipkg directive
@@ -26,56 +28,56 @@ class OmniPkg(dotbot.Plugin):
         if directives.update is True:
             self._packageManager.update()
 
-        for pkg in directives.packages:
-            install_success = self._packageManager.package_install(pkg.package_name)
+        for install_entry in directives.install_entries:
+            print(install_entry)
+            filters = install_entry.filters
+            if filters is not None:
+                print(f"Filters found {filters}")
+            install_success = self._packageManager.package_install(install_entry.package_name)
             # try alternative names if present
-            if not install_success and len(pkg.package_name_alt) != 0:
-                for alt_name in pkg.package_name_alt:
+            if not install_success and len(install_entry.package_name_alt) != 0:
+                for alt_name in install_entry.package_name_alt:
                     install_success = self._packageManager.package_install(alt_name)
             if not install_success:
                 # instead of bailing, continue and log this
-                self._log.error(f"Error installing {pkg}")
+                self._log.error(f"Error installing {install_entry}")
             else:
-                self._log.info(f"Done installing {pkg}")
+                self._log.info(f"Done installing {install_entry}")
 
         self._log.info("Omnipkg done")
         return True
 
 
 class Directives:
-    """parse allowed directives
-    example structure:
+    """Holds all parsed directives from the configuration."""
 
-    - omnipkg:
-        - install:
-            - kitty
-            - tmux
-            - zsh
-            - [ python3, python ]
-            - neovim
-      ]
-    """
-
-    update = False
-    packages: list[Package] = []  # noqa: RUF012
+    update: bool = False
+    install_entries: list[InstallEntry] = []  # noqa: RUF012
 
 
-class Package:
-    def __init__(self, name: str, alts: list[str] | None = None) -> None:
+class InstallEntry:
+    def __init__(
+        self,
+        name: str | None = None,
+        alts: list[str] | None = None,
+        filters: list[str] | None = None,
+    ) -> None:
         """Initializes the Package object."""
-        self.package_name = name
+        self.package_name = name if name is not None else ""
         self.package_name_alt = alts if alts is not None else []
+        self.filters = filters if alts is not None else []
 
     def __repr__(self) -> str:
-        """Joins the original and alternative names with a slash."""
-        # Create a new list starting with the original name
-        all_names = [self.package_name]
+        """Provides a clean, readable string representation."""
+        name_str = self.package_name
+        if self.package_name_alt:
+            name_str += f" (alts: {', '.join(self.package_name_alt)})"
 
-        # Add the list of alternative names
-        all_names.extend(self.package_name_alt)
+        filter_str = ""
+        if self.filters:
+            filter_str = f" [filters: {', '.join(self.filters)}]"
 
-        # Join all names
-        return " || ".join(all_names)
+        return f"InstallEntry('{name_str}'{filter_str})"
 
 
 class DirectivesParser:
@@ -83,26 +85,58 @@ class DirectivesParser:
     _installSubDirective = "install"
     _updateSubDirective = "update"
 
-    def parse(self, data: list[any]) -> Directives:
-        directives = Directives()
-        for item in data:
-            # 2. Handle simple string commands
-            if isinstance(item, str):
-                if item == self._updateSubDirective:
-                    directives.update = True
+    def _parse_package_attributes(self, entry: InstallEntry, attributes: dict | None) -> None:
+        """Helper to populate an InstallEntry from an attributes dictionary."""
+        if attributes is None:
+            return
 
+        # Safely get alt_name and ensure it's a list
+        alt_name = attributes.get("alt_name")
+        if isinstance(alt_name, str):
+            entry.package_name_alt = [alt_name]
+        elif isinstance(alt_name, list):
+            entry.package_name_alt = alt_name
+
+        # Safely get filter and ensure it's a list
+        package_filter = attributes.get("filter")
+        if isinstance(package_filter, str):
+            entry.filters = [package_filter]
+        elif isinstance(package_filter, list):
+            entry.filters = package_filter
+
+    def _parse_install_list(self, packages_data: list) -> list[InstallEntry]:
+        """Parses a list of packages containing mixed types (strings and dicts)."""
+        parsed_entries = []
+        for item in packages_data:
+            # Handle simple package names like "lsd"
+            if isinstance(item, str):
+                entry = InstallEntry(name=item)
+                parsed_entries.append(entry)
+
+            # Handle complex package entries like {"neovim": {...}}
             elif isinstance(item, dict):
-                for command, packages_data in item.items():
-                    if command == self._installSubDirective:
-                        for package_item in packages_data:
-                            # If it's a list, it has a primary name and alternatives
-                            if isinstance(package_item, list):
-                                pkg = Package(name=package_item[0], alts=package_item[1:])
-                                directives.packages.append(pkg)
-                            # If it's a string, it's just a primary name
-                            elif isinstance(package_item, str):
-                                pkg = Package(name=package_item)
-                                directives.packages.append(pkg)
+                # Extract the name (key) and attributes (value)
+                for name, attributes in item.items():
+                    entry = InstallEntry(name=name)
+                    self._parse_package_attributes(entry, attributes)
+                    parsed_entries.append(entry)
+
+        return parsed_entries
+
+    def parse(self, data: list) -> Directives:
+        """The main entry point for parsing the configuration list."""
+        directives = Directives()
+
+        for item in data:
+            if isinstance(item, str) and item == self._updateSubDirective:
+                directives.update = True
+
+            elif isinstance(item, dict) and self._installSubDirective in item:
+                packages_list = item[self._installSubDirective]
+                # Delegate the mixed-type list to the helper
+                install_entries = self._parse_install_list(packages_list)
+                directives.install_entries.extend(install_entries)
+
         return directives
 
 
@@ -155,20 +189,20 @@ class PacmanPackageManager(PackageManager):
         self._package_install_command = "sudo pacman -S --noconfirm --needed"  # plus pkg
 
     def update(self) -> None:
-        run_in_shell(self._update_command, silent=True)
+        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
 
     def package_exists(self, package: str) -> bool:
         # regex here be specific
         cmd = self._package_exists_command + " ^" + package + "$"
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
 
 class AptPackageManager(PackageManager):
@@ -181,19 +215,19 @@ class AptPackageManager(PackageManager):
         )
 
     def update(self) -> None:
-        run_in_shell(self._update_command, silent=True)
+        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
 
 class BrewPackageManager(PackageManager):
@@ -204,19 +238,19 @@ class BrewPackageManager(PackageManager):
         self._package_install_command = "brew install"  # plus pkg
 
     def update(self) -> None:
-        run_in_shell(self._update_command, silent=True)
+        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
 
 class DnfPackageManager(PackageManager):
@@ -227,19 +261,19 @@ class DnfPackageManager(PackageManager):
         self._package_install_command = "sudo dnf install -y"  # plus pkg
 
     def update(self) -> None:
-        run_in_shell(self._update_command, silent=True)
+        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
 
 class ZypperPackageManager(PackageManager):
@@ -250,19 +284,19 @@ class ZypperPackageManager(PackageManager):
         self._package_install_command = "sudo zypper install --non-interactive"  # plus pkg
 
     def update(self) -> None:
-        run_in_shell(self._update_command, silent=True)
+        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
 
     def package_exists(self, package: str) -> bool:
         cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_is_installed(self, package: str) -> bool:
         cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
     def package_install(self, package: str) -> bool:
         cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=True)
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
 
 class PackageManagerFactory:
