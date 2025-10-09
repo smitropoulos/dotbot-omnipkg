@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
+from abc import ABC
 from shutil import which
 from typing import ClassVar
 
@@ -175,40 +177,6 @@ class DirectivesParser:
         return directives
 
 
-class PackageManager:
-    """package manager interface"""
-
-    def setup(self) -> None:
-        """if necessary setup the package manager"""
-
-    def package_install(self, _package: str) -> bool:
-        """install a package
-
-        Returns:
-            success
-        """
-        return False
-
-    def update(self) -> None:
-        """update the caches"""
-
-    def package_exists(self, _package: str) -> bool:
-        """check if the package exists in the remote
-
-        Returns:
-            success
-        """
-        return False
-
-    def package_is_installed(self, _package: str) -> bool:
-        """checks if the packages is already installed
-
-        Returns:
-            true if installed, false if not
-        """
-        return False
-
-
 def run_in_shell(cmd: str, *, silent: bool = True) -> bool:
     if silent:
         stdout = stderr = subprocess.DEVNULL
@@ -219,32 +187,58 @@ def run_in_shell(cmd: str, *, silent: bool = True) -> bool:
     return result == 0
 
 
+class PackageManager(ABC):
+    """package manager interface"""
+
+    def package_install(self, package: str) -> bool:
+        """install a package
+
+        Returns:
+            success
+        """
+        cmd = f"{self._package_install_command} {shlex.quote(package)}"
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
+
+    def update(self) -> None:
+        """update the caches"""
+        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
+
+    def package_exists(self, package: str) -> bool:
+        """check if the package exists in the remote
+
+        Returns:
+            success
+        """
+        cmd = f"{self._package_exists_command} {shlex.quote(package)}"
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
+
+    def package_is_installed(self, package: str) -> bool:
+        """checks if the packages is already installed
+
+        Returns:
+            true if installed, false if not
+        """
+        cmd = f"{self._package_is_installed_command} {shlex.quote(package)}"
+        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
+
+
 class PacmanPackageManager(PackageManager):
     def __init__(self) -> None:
+        super().__init__()
         self._update_command = "sudo pacman --sync --refresh --refresh"
         self._package_exists_command = "pacman -Si"  # plus pkg
         self._package_is_installed_command = "pacman -Qe"  # plus pkg
         self._package_install_command = "sudo pacman -S --noconfirm --needed"  # plus pkg
 
-    def update(self) -> None:
-        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
-
     def package_exists(self, package: str) -> bool:
         # regex here be specific
-        cmd = self._package_exists_command + " ^" + package + "$"
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_is_installed(self, package: str) -> bool:
-        cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_install(self, package: str) -> bool:
-        cmd = self._package_install_command + " " + package
+        cmd = f"{self._package_exists_command} ^{shlex.quote(package)}$"
         return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
 
 class AptPackageManager(PackageManager):
     def __init__(self) -> None:
+        super().__init__()
         self._update_command = "DEBIAN_FRONTEND=noninteractive sudo apt-get update"
         self._package_exists_command = "DEBIAN_FRONTEND=noninteractive apt-cache show"  # plus pkg
         self._package_is_installed_command = "dpkg -s"  # plus pkg
@@ -252,103 +246,46 @@ class AptPackageManager(PackageManager):
             "DEBIAN_FRONTEND=noninteractive sudo apt-get install -y"  # plus pkg
         )
 
-    def update(self) -> None:
-        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
-
-    def package_exists(self, package: str) -> bool:
-        cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_is_installed(self, package: str) -> bool:
-        cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_install(self, package: str) -> bool:
-        cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
 
 class BrewPackageManager(PackageManager):
     def __init__(self) -> None:
+        super().__init__()
         self._update_command = "brew update"
         self._package_exists_command = "brew info"  # plus pkg
         self._package_is_installed_command = "brew list"  # plus pkg
         self._package_install_command = "brew install"  # plus pkg
 
-    def update(self) -> None:
-        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
-
-    def package_exists(self, package: str) -> bool:
-        cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_is_installed(self, package: str) -> bool:
-        cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_install(self, package: str) -> bool:
-        cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
 
 class DnfPackageManager(PackageManager):
     def __init__(self) -> None:
+        super().__init__()
         self._update_command = "sudo dnf makecache"
         self._package_exists_command = "dnf list available"  # plus pkg
         self._package_is_installed_command = "dnf list installed"  # plus pkg
         self._package_install_command = "sudo dnf install -y"  # plus pkg
 
-    def update(self) -> None:
-        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
-
-    def package_exists(self, package: str) -> bool:
-        cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_is_installed(self, package: str) -> bool:
-        cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_install(self, package: str) -> bool:
-        cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
 
 class ZypperPackageManager(PackageManager):
     def __init__(self) -> None:
+        super().__init__()
         self._update_command = "sudo zypper refresh"
         self._package_exists_command = "zypper search --match-exact"  # plus pkg
         self._package_is_installed_command = "zypper se --installed-only --match-exact"  # plus pkg
         self._package_install_command = "sudo zypper install --non-interactive"  # plus pkg
 
-    def update(self) -> None:
-        run_in_shell(self._update_command, silent=omnipkg_silent_toggle)
-
-    def package_exists(self, package: str) -> bool:
-        cmd = self._package_exists_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_is_installed(self, package: str) -> bool:
-        cmd = self._package_is_installed_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
-    def package_install(self, package: str) -> bool:
-        cmd = self._package_install_command + " " + package
-        return run_in_shell(cmd, silent=omnipkg_silent_toggle)
-
 
 class PackageManagerFactory:
     pms = (
-        {"executable": "brew", "pm": BrewPackageManager()},
-        {"executable": "apt-get", "pm": AptPackageManager()},
-        {"executable": "pacman", "pm": PacmanPackageManager()},
-        {"executable": "dnf", "pm": DnfPackageManager()},
-        {"executable": "zypper", "pm": ZypperPackageManager()},
+        {"executable": "brew", "pm": BrewPackageManager},
+        {"executable": "apt-get", "pm": AptPackageManager},
+        {"executable": "pacman", "pm": PacmanPackageManager},
+        {"executable": "dnf", "pm": DnfPackageManager},
+        {"executable": "zypper", "pm": ZypperPackageManager},
     )
 
     def spawn(self) -> PackageManager:
         for pm_tuple in self.pms:
             if which(pm_tuple["executable"]) is not None:
-                return pm_tuple["pm"]
+                return pm_tuple["pm"]()
         msg = "Not supported platform"
         raise RuntimeError(msg)
