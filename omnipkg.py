@@ -37,10 +37,12 @@ class OmniPkg(dotbot.Plugin):
         directives = self.parser.parse(data)
 
         if directives.update is True:
+            self._log_info("Updating repos ...")
             self._packageManager.update()
 
         filtering = OsFiltering()
         for install_entry in directives.install_entries:
+            self._log_info(f"Installing {install_entry}")
             if filtering.filter_out(install_entry):
                 self._log_info(
                     f"filtering out {install_entry.package_name} - filter: {install_entry.filters}"
