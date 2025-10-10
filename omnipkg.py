@@ -196,6 +196,14 @@ class PackageManager(ABC):
         Returns:
             success
         """
+        # check if package is installed
+        if self.package_is_installed(package):
+            return True
+
+        # check if package exists in repos
+        if not self.package_exists(package):
+            return False
+
         cmd = f"{self._package_install_command} {shlex.quote(package)}"
         return run_in_shell(cmd, silent=omnipkg_silent_toggle)
 
